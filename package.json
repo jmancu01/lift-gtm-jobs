@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Trigger.dev worker project for Lift GTM engine — scheduled jobs and background tasks migrated from Supabase edge functions.",
   "scripts": {
-    "dev": "trigger.dev dev",
-    "deploy": "trigger.dev deploy",
+    "dev": "trigger dev",
+    "deploy": "trigger deploy",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
