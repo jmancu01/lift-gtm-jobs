@@ -1,0 +1,26 @@
+{
+  "name": "lift-gtm-jobs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Trigger.dev worker project for Lift GTM engine — scheduled jobs and background tasks migrated from Supabase edge functions.",
+  "scripts": {
+    "dev": "trigger.dev dev",
+    "deploy": "trigger.dev deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "@trigger.dev/sdk": "^4.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@trigger.dev/build": "^4.0.0",
+    "@types/node": "^22.0.0",
+    "trigger.dev": "^4.0.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
