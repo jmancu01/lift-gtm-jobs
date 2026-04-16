@@ -23,3 +23,16 @@ export function computePersonaType(title: string | null): string {
   }
   return "Unclassified";
 }
+
+export function personaTypeFromGroup(groupName: string): string {
+  switch (groupName) {
+    case "Transformation":
+      return "Transformation Practitioners";
+    case "Finance":
+      return "Finance & Generic Practitioners";
+    case "Operations":
+      return "Operations Leaders";
+    default:
+      return "Operations Leaders";
+  }
+}

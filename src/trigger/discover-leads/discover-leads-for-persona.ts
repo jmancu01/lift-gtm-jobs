@@ -17,7 +17,7 @@ import {
 import {
   delay,
   extractDomain,
-  computePersonaType,
+  personaTypeFromGroup,
 } from "../../lib/helpers/index.js";
 import type { PersonaResult } from "./types.js";
 
@@ -169,7 +169,7 @@ export const discoverLeadsForPersona = task({
                   person.organization?.estimated_num_employees ?? null,
                 industry: person.organization?.industry ?? null,
                 funnel_stage: "discovered",
-                persona_type: computePersonaType(person.title),
+                persona_type: personaTypeFromGroup(persona.name),
                 icp_score: null,
                 icp_tier: null,
                 qualification_status: null,
