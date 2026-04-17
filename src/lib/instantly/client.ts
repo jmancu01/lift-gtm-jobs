@@ -99,6 +99,22 @@ class InstantlyClient {
       );
     }
   }
+
+  async addToBlocklist(value: string): Promise<void> {
+    const response = await fetch(
+      `${INSTANTLY_API_BASE}/block-lists-entries`,
+      {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify({ bl_value: value }),
+      },
+    );
+    if (!response.ok && response.status !== 409) {
+      throw new Error(
+        `Instantly addToBlocklist error (${response.status}): ${await response.text()}`,
+      );
+    }
+  }
 }
 
 export function createInstantlyClient(): InstantlyClient {

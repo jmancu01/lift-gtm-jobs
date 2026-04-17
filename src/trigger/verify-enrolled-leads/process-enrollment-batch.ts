@@ -88,11 +88,14 @@ export const processEnrollmentBatch = task({
           linkedin_url: lead.linkedin_url || undefined,
         })),
       );
-      const enrichedPeople = enrichResponse.matches;
+      const enrichedById = new Map(
+        enrichResponse.matches
+          .filter((p): p is NonNullable<typeof p> => p != null)
+          .map((p) => [p.id, p]),
+      );
 
-      for (let i = 0; i < toProcess.length; i++) {
-        const lead = toProcess[i]!;
-        const person = enrichedPeople[i];
+      for (const lead of toProcess) {
+        const person = enrichedById.get(lead.apollo_id!);
 
         try {
           if (!person) {
@@ -125,6 +128,17 @@ export const processEnrollmentBatch = task({
           } else if (evaluation.emailStatus === "invalid") {
             summary.invalid++;
             summary.suppressed++;
+
+            let blocklisted = false;
+            try {
+              await instantly.addToBlocklist(lead.email);
+              blocklisted = true;
+            } catch (e) {
+              logger.warn("instantly blocklist failed (invalid)", {
+                lead_id: lead.id,
+                error: (e as Error).message,
+              });
+            }
 
             let instantlyDeleted = false;
             if (lead.instantly_id) {
@@ -182,24 +196,15 @@ export const processEnrollmentBatch = task({
                 run_id: runId,
                 reason: evaluation.reason,
                 instantly_removed: !!lead.instantly_id,
+                instantly_blocklisted: blocklisted,
               },
             });
           } else if (evaluation.emailStatus === "risky") {
+            // Catchall domains accept any address, so sends won't hard-bounce.
+            // Tag the lead and leave it in Instantly — deleting would drop
+            // engagement history without a deliverability upside.
             summary.risky++;
             changes.tag = "catchall";
-            if (lead.instantly_id) {
-              try {
-                await instantly.deleteLead(lead.instantly_id);
-                (changes as Record<string, unknown>).instantly_id = null;
-                (changes as Record<string, unknown>).instantly_campaign = null;
-                summary.removed_from_instantly++;
-              } catch (e) {
-                logger.warn("instantly delete failed (risky)", {
-                  lead_id: lead.id,
-                  error: (e as Error).message,
-                });
-              }
-            }
           } else {
             summary.unknown++;
           }
