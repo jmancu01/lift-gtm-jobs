@@ -69,11 +69,20 @@ class ApolloClient {
   async bulkEnrichPeople(
     details: ApolloBulkEnrichRequest["details"],
     revealPersonalEmails = false,
+    waterfall?: { webhookUrl: string },
   ): Promise<ApolloBulkEnrichResponse> {
+    const body: Record<string, unknown> = {
+      details,
+      reveal_personal_emails: revealPersonalEmails,
+    };
+    if (waterfall?.webhookUrl) {
+      body.run_waterfall_email = true;
+      body.webhook_url = waterfall.webhookUrl;
+    }
     return this.request<ApolloBulkEnrichResponse>(
       "POST",
       "/api/v1/people/bulk_match",
-      { details, reveal_personal_emails: revealPersonalEmails },
+      body,
     );
   }
 
