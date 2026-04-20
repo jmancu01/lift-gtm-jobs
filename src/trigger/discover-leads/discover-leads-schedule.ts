@@ -7,7 +7,7 @@ const DEFAULT_PER_PAGE = 25;
 
 export const discoverLeadsSchedule = schedules.task({
   id: "discover-leads-schedule",
-  cron: "0 */6 * * *",
+  cron: "0 */12 * * *",
   run: async () => {
     const companies = await getActiveCompanies();
     const triggered: { company_id: string; run_id: string }[] = [];
