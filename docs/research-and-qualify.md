@@ -160,18 +160,18 @@ filter.
 Add to the Trigger.dev project env:
 
 ```
-AGENTAPI_SCOUT_URL=https://scout.agentapi.example.com
+AGENTAPI_BASE_URL=https://scout.agentapi.example.com
 AGENTAPI_AUTH_TOKEN=<shared bearer token>
 ```
 
 Locally:
 
 ```
-AGENTAPI_SCOUT_URL=http://localhost:3285
+AGENTAPI_BASE_URL=http://localhost:3285
 AGENTAPI_AUTH_TOKEN=test
 ```
 
-`AGENTAPI_SCOUT_URL` is required (client throws on missing). `AGENTAPI_AUTH_TOKEN`
+`AGENTAPI_BASE_URL` is required (client throws on missing). `AGENTAPI_AUTH_TOKEN`
 is optional — if empty, no `Authorization` header is sent (matches the dev-mode
 "empty token = no auth" behavior on the server).
 
@@ -229,7 +229,7 @@ make dev/scout        # binds :3285 with AGENTAPI_AUTH_TOKEN=test (if using wrap
 
 # terminal 2 — run the Trigger.dev worker
 cd ~/Developer/LIFT/lift-gtm-jobs
-AGENTAPI_SCOUT_URL=http://localhost:3285 \
+AGENTAPI_BASE_URL=http://localhost:3285 \
 AGENTAPI_AUTH_TOKEN=test \
 npm run dev
 

@@ -45,7 +45,7 @@ class AgentApiScoutClient implements ScoutClient {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(`${this.baseUrl}/ask`, {
+      const response = await fetch(`${this.baseUrl}/scout/ask`, {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -84,7 +84,7 @@ class AgentApiScoutClient implements ScoutClient {
 }
 
 export function createScoutClient(): ScoutClient {
-  const baseUrl = requireEnv("AGENTAPI_SCOUT_URL").replace(/\/$/, "");
+  const baseUrl = requireEnv("AGENTAPI_BASE_URL").replace(/\/$/, "");
   const authToken = process.env.AGENTAPI_AUTH_TOKEN ?? "";
   return new AgentApiScoutClient(baseUrl, authToken);
 }

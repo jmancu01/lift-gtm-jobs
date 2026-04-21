@@ -20,7 +20,7 @@ Si `make dev/scout` no usa auth, el servidor acepta cualquier request. Si lo cor
 ### 2. `.env` en `lift-gtm-jobs/`
 
 ```
-AGENTAPI_SCOUT_URL=http://localhost:3285
+AGENTAPI_BASE_URL=http://localhost:3285
 AGENTAPI_AUTH_TOKEN=test
 SUPABASE_URL=https://ycwarkyijoeunmgjbikm.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<service role key>
@@ -237,7 +237,7 @@ En HubSpot, las propiedades custom no se pueden borrar con un update vacío — 
 
 | Síntoma | Causa | Fix |
 |---|---|---|
-| `AGENTAPI_SCOUT_URL environment variable is required` al iniciar la task | Falta la env var en `.env` o en el deploy de Trigger.dev | Agregar al `.env` + rebuild del worker |
+| `AGENTAPI_BASE_URL environment variable is required` al iniciar la task | Falta la env var en `.env` o en el deploy de Trigger.dev | Agregar al `.env` + rebuild del worker |
 | `scout /ask failed` con `AbortError` a los 10 min | Scout se colgó o está procesando algo largo | Esperar `status: stable` antes del próximo `/ask`; si se repite, revisar que scout tenga acceso a internet |
 | `message can only be sent when the agent is waiting for user input` (500) | Scout está en `running` (run anterior abortó del lado cliente) | Esperar stable |
 | `scout schema validation failed` — `AgentApiSchemaError` | Scout no pudo producir JSON válido ni después del repair retry | **No retries en 400** — cae como `schema_failures` en el summary, fallback a persona template |
