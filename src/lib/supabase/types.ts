@@ -1,3 +1,23 @@
+export type FunnelStage =
+  | "discovered"
+  | "synced"
+  | "qualified"
+  | "enrolled"
+  | "contacted"
+  | "engaging"
+  | "replied"
+  | "meeting_booked"
+  | "suppressed"
+  | "nurture";
+
+export type QualificationStatus =
+  | "pending"
+  | "ready"
+  | "suppressed"
+  | "incomplete";
+
+export type IcpTier = "A" | "B" | "C";
+
 export interface Lead {
   id: string;
   company_id: string | null;
@@ -10,11 +30,11 @@ export interface Lead {
   linkedin_url: string | null;
   employee_count: number | null;
   industry: string | null;
-  funnel_stage: string;
+  funnel_stage: FunnelStage;
   persona_type: string | null;
   icp_score: number | null;
-  icp_tier: string | null;
-  qualification_status: string | null;
+  icp_tier: IcpTier | null;
+  qualification_status: QualificationStatus | null;
   suppression_reason: string | null;
   hubspot_contact_id: string | null;
   hubspot_company_id: string | null;
@@ -51,6 +71,7 @@ export interface Company {
   id: string;
   name: string;
   slug: string;
+  description: string | null;
   hubspot_access_token: string | null;
   hubspot_portal_id: string | null;
   apollo_contact_stage_id: string | null;
@@ -58,6 +79,36 @@ export interface Company {
   created_at: string;
   updated_at: string;
 }
+
+export interface LeadAiResearch {
+  id: string;
+  lead_id: string;
+  company_id: string;
+  fit_tag: "A" | "B" | "C";
+  fit_justification: string;
+  confidence: number;
+  research_quality: "high" | "medium" | "low";
+  summary: string;
+  signals: string;
+  phone: string | null;
+  phone_source: string | null;
+  talking_points: string[];
+  pain_points: string[];
+  recent_activity: string[];
+  sources: string[];
+  company_summary: string | null;
+  industry: string | null;
+  company_size: string | null;
+  run_id: string | null;
+  schema_version: string;
+  created_at: string;
+  superseded_at: string | null;
+}
+
+export type NewLeadAiResearch = Omit<
+  LeadAiResearch,
+  "id" | "created_at" | "superseded_at" | "schema_version"
+> & { schema_version?: string };
 
 export interface IcpPersona {
   name: string;

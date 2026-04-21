@@ -21,6 +21,10 @@ export interface HubSpotContact {
     apollo_sync_date?: string;
     qualification_date?: string;
     hs_lead_status?: string;
+    lift_ai_summary?: string;
+    lift_ai_fit_tag?: string;
+    lift_ai_signals?: string;
+    lift_ai_phone?: string;
   };
   createdAt?: string;
   updatedAt?: string;

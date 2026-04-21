@@ -7,3 +7,4 @@ node_modules
 dist
 *.log
 .claude/settings.local.json
+supabase/.temp/

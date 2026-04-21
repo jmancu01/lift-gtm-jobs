@@ -22,6 +22,10 @@ const CONTACT_SEARCH_PROPERTIES = [
   "notes_last_contacted",
   "qualification_date",
   "hs_lead_status",
+  "lift_ai_summary",
+  "lift_ai_fit_tag",
+  "lift_ai_signals",
+  "lift_ai_phone",
 ];
 
 const COMPANY_SEARCH_PROPERTIES = [

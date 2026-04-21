@@ -1,3 +1,5 @@
+import { scoutFitToTier } from "../agentapi/types.js";
+import type { ScoutPayload } from "../agentapi/types.js";
 import type { Lead } from "../supabase/types.js";
 
 export const INDUSTRY_MAP: Record<string, string> = {
@@ -34,5 +36,27 @@ export function contactPropertiesFromLead(lead: Lead): Record<string, string> {
     persona_type: lead.persona_type || "",
     icp_tier: lead.icp_tier || "",
     apollo_sync_date: new Date().toISOString(),
+  };
+}
+
+/**
+ * Maps scout.v1 output to the HubSpot contact properties the agent itself
+ * specifies in `hubspot_properties`, plus the core ICP fields we derive from
+ * `fit_probability` so existing reports keyed on `icp_tier`/`qualification_*`
+ * keep working.
+ */
+export function contactPropertiesFromScout(
+  scout: ScoutPayload,
+): Record<string, string> {
+  const tier = scoutFitToTier(scout.hubspot_properties.lift_ai_fit_tag);
+  return {
+    lift_ai_summary: scout.hubspot_properties.lift_ai_summary || "",
+    lift_ai_fit_tag: tier,
+    lift_ai_signals: scout.hubspot_properties.lift_ai_signals || "",
+    lift_ai_phone: scout.hubspot_properties.lift_ai_phone || "",
+    icp_tier: tier,
+    icp_score: Math.round((scout.confidence ?? 0) * 100).toString(),
+    qualification_status: tier === "C" ? "suppressed" : "ready",
+    qualification_date: new Date().toISOString(),
   };
 }
