@@ -69,16 +69,27 @@ class ApolloClient {
   async bulkEnrichPeople(
     details: ApolloBulkEnrichRequest["details"],
     revealPersonalEmails = false,
-    waterfall?: { webhookUrl: string },
+    options?: {
+      waterfallEmail?: { webhookUrl: string };
+      revealPhone?: { webhookUrl: string; waterfall?: boolean };
+    },
   ): Promise<ApolloBulkEnrichResponse> {
     const body: Record<string, unknown> = {
       details,
       reveal_personal_emails: revealPersonalEmails,
     };
-    if (waterfall?.webhookUrl) {
+    // Apollo accepts a single webhook_url per call; waterfall email and phone
+    // reveal both post their async results to the same endpoint.
+    const webhookUrl =
+      options?.waterfallEmail?.webhookUrl ?? options?.revealPhone?.webhookUrl;
+    if (options?.waterfallEmail?.webhookUrl) {
       body.run_waterfall_email = true;
-      body.webhook_url = waterfall.webhookUrl;
     }
+    if (options?.revealPhone?.webhookUrl) {
+      body.reveal_phone_number = true;
+      if (options.revealPhone.waterfall) body.run_waterfall_phone = true;
+    }
+    if (webhookUrl) body.webhook_url = webhookUrl;
     return this.request<ApolloBulkEnrichResponse>(
       "POST",
       "/api/v1/people/bulk_match",

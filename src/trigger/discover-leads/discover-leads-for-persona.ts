@@ -76,8 +76,13 @@ export const discoverLeadsForPersona = task({
 
     const apollo = createApolloClient();
     const events: LeadEvent[] = [];
-    const waterfallEnabled = !!process.env.APOLLO_WATERFALL_WEBHOOK_URL;
-    logger.info(`[${persona.name}] waterfall_enabled=${waterfallEnabled}`);
+    const webhookUrl = process.env.APOLLO_WATERFALL_WEBHOOK_URL;
+    const waterfallEnabled = !!webhookUrl;
+    const phoneRevealEnabled =
+      waterfallEnabled && process.env.APOLLO_PHONE_REVEAL_ENABLED === "true";
+    logger.info(
+      `[${persona.name}] waterfall_enabled=${waterfallEnabled} phone_reveal_enabled=${phoneRevealEnabled}`,
+    );
 
     try {
       let page = 1;
@@ -110,7 +115,6 @@ export const discoverLeadsForPersona = task({
           if (existing.size > 0) result.duplicatesSkipped += existing.size;
           if (newBatch.length === 0) continue;
 
-          const waterfallWebhookUrl = process.env.APOLLO_WATERFALL_WEBHOOK_URL;
           const enrichResponse = await apollo.bulkEnrichPeople(
             newBatch.map((p) => ({
               id: p.id,
@@ -118,7 +122,14 @@ export const discoverLeadsForPersona = task({
               organization_name: p.organization?.name || "",
             })),
             false,
-            waterfallWebhookUrl ? { webhookUrl: waterfallWebhookUrl } : undefined,
+            webhookUrl
+              ? {
+                  waterfallEmail: { webhookUrl },
+                  ...(phoneRevealEnabled && {
+                    revealPhone: { webhookUrl, waterfall: true },
+                  }),
+                }
+              : undefined,
           );
           const enriched = enrichResponse.matches.filter(
             (m): m is ApolloEnrichedPerson => m !== null,
