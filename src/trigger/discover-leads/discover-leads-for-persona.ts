@@ -205,11 +205,14 @@ export const discoverLeadsForPersona = task({
                 phone_type: null,
                 phone_status: null,
                 phone_revealed_at: null,
+                heyreach_lead_id: null,
+                heyreach_conversation_id: null,
                 synced_at: null,
                 qualified_at: null,
                 suppressed_at: null,
                 enrolled_at: null,
                 discovered_at: new Date().toISOString(),
+                replied_at: null,
                 tag: person.email_domain_catchall ? "catchall" : null,
               });
 

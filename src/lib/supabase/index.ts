@@ -19,6 +19,10 @@ export {
   insertLeadAiResearch,
   getCurrentLeadAiResearch,
 } from "./research.js";
+export {
+  insertLeadMessage,
+  getResearchSummariesByLeadIds,
+} from "./messages.js";
 export type {
   Lead,
   LeadEvent,
@@ -27,4 +31,13 @@ export type {
   IcpPersona,
   LeadAiResearch,
   NewLeadAiResearch,
+  LeadMessage,
+  NewLeadMessage,
+  LeadMessageChannel,
+  LeadMessageDirection,
+  LeadMessageInputType,
+  LeadMessageCopySource,
+  ResearchSummary,
+  RecommendedTone,
+  RecommendedValueProp,
 } from "./types.js";

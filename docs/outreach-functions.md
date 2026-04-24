@@ -2,6 +2,26 @@
 
 > Companion to `agentapi/agents/outreach-orchestrator/PLAN.md`. This doc covers the `gtm-jobs` side: the Trigger.dev task that calls the outreach-orchestrator agent, the AgentAPI client, the HeyReach I/O on either side, and the schema changes this flow needs.
 
+## Status (2026-04-24)
+
+| § | Item | Status |
+|---|------|--------|
+| 4 | Migration (`20260424140000_add_outreach_tables.sql`) | **Done** — applied to project `ycwarkyijoeunmgjbikm` |
+| 5 | AgentAPI outreach client (`outreach-client.ts`, `outreach-prompts.ts`, union types) | **Done** |
+| 6 | Trigger tasks (`outreach-dispatch/index.ts`, `enroll-cold.ts`, `compose-and-send.ts`, `buckets.ts`) | **Done** — registered, cron not yet attached in Trigger.dev dashboard |
+| 10.2 | Make.com upgrade (rich `lead_events`, `heyreach_lead_id`/`heyreach_conversation_id`, `replied_at`) | **Not done** — external to this repo |
+| 10.3 | Per-company config (`heyreach_linkedin_account_id`, `heyreach_conn_req_campaigns`) | **Not done** — template at `docs/outreach-pilot-config.sql` |
+| 10.4 | `normalizeChatroom` unit test | **Done** — synthetic fixture at `src/lib/agentapi/outreach-prompts.test.ts`; TODO to swap for a captured payload |
+| 10.6 | Smoke test (hand-pick one first_dm + one reply lead) | **Not done** |
+| 10.7 | Enable cron | **Not done** |
+
+Deviations from the spec below captured during implementation:
+- §5 timeout is `180_000ms` (not `120_000ms`) — 4× the 45s per-batch budget gives slow chunks room to fail before the Trigger.dev task ceiling.
+- HeyReach client method is `addLeadsToCampaign` (already hits the `/AddLeadsToCampaignV2` endpoint internally); plan text said `addLeadsToCampaignV2`.
+- Cold bucket additionally skips leads without `linkedin_url` (HeyReach requires `profileUrl`).
+- `normalizeChatroom` matches `sender` against `ourAccountId` across number / string / `{id|accountId|linkedInAccountId}` shapes (§12 open question remains; swap-in once we have a captured payload).
+
+
 - Agent contract: `agentapi/agents/outreach-orchestrator/PLAN.md` (§4 input, §5 output). Agent has no tools, no DB access, no HeyReach access — it is a pure function `batch → receipt`.
 - AgentAPI port (dev): `3288`. Single instance, **serializes `/message` calls** — never fire two concurrent POSTs.
 - Webhook ingress stays on **Make.com** (Path 1). This repo does not own a webhook endpoint in V1.
@@ -10,7 +30,7 @@
 
 ## 1. TL;DR
 
-- `gtm-jobs` adds one cron `outreach-dispatch` (every 30 min, per active company) that buckets eligible leads into three flows: **cold** (enroll), **first_dm** (compose+send), **reply** (compose+send or Slack).
+- `gtm-jobs` adds one cron `outreach-dispatch` (every 30 min, per active company during working hours) that buckets eligible leads into three flows: **cold** (enroll), **first_dm** (compose+send), **reply** (compose+send or Slack).
 - Only the `first_dm` and `reply` buckets call the agent. The cold bucket is a direct HeyReach `add_leads_to_campaign_v2` — no agent involvement.
 - A new thin AgentAPI client (`createOutreachClient`) mirrors `createScoutClient`. One method: `compose(batch) → OutreachReceipt`.
 - Make.com is upgraded to persist HeyReach IDs (`heyreach_lead_id`, `heyreach_conversation_id`) into Supabase on webhook fire; without those IDs we can't call `sendMessage` or `getChatroom`, so leads that predate the Make.com upgrade are silently skipped (no backfill).
@@ -54,7 +74,7 @@ Make.com scenario  ──► Supabase
     • insert lead_events (detail = full payload)
     • update leads.heyreach_lead_id / heyreach_conversation_id / replied_at
 
-                                     ┌──────────────────────────────────┐
+          
 cron: */30 * * * *  ──► outreach-dispatch (per active company)
     │                                │
     │     buckets                    │
@@ -142,25 +162,61 @@ export interface OutreachClient {
 export function createOutreachClient(): OutreachClient;
 ```
 
-- POST `${AGENTAPI_BASE_URL}/outreach/message`.
+- POST `${AGENTAPI_BASE_URL}/outreach-orchestrator/message`. The `outreach-orchestrator` prefix matches the `--agent-id` flag in `agentapi/Makefile` and the AgentAPI gateway's routing convention (scout client uses the same pattern: `${BASE_URL}/scout/ask`).
 - Body: `{ prompt: serializedBatch, schema: "outreach.v1", batch_id }`.
 - `prompt` is `batch_id:<id>\n<json>` per PLAN §11 (heartbeat_runs join).
 - Timeout: `DEFAULT_TIMEOUT_MS = 120_000` (no web research, budget §8 says <45s per batch of 10).
 - 400 → `AgentApiSchemaError` (same shape as scout).
 - Returns validated `OutreachReceipt` (Zod parse, not just cast).
 
+### Research source: `research_summaries`, not `lead_ai_research`
+
+The agent PLAN §4 expects `research: {company_summary, role_summary, recent_news, pain_points, recommended_tone, recommended_value_prop}` and `scout_copy: {linkedin_dm}`. These fields already exist on **`research_summaries`** (the table scout's prompt writes into directly via Postgres MCP) — specifically `role_summary`, `recent_news`, `pain_points`, `recommended_tone`, `recommended_value_prop`, and `personalized_linkedin_dm`.
+
+`lead_ai_research` (the gtm-jobs-side mirror) has a narrower shape and is NOT what we read for outreach. We leave `lead_ai_research` writes untouched; outreach reads from `research_summaries` joined by `lead_id`.
+
+Mapping to agent input:
+
+| Agent input field | Source column |
+|---|---|
+| `research.company_summary` | `research_summaries.company_summary` |
+| `research.role_summary` | `research_summaries.role_summary` |
+| `research.recent_news` | `research_summaries.recent_news` |
+| `research.pain_points` | `research_summaries.pain_points` |
+| `research.recommended_tone` | `research_summaries.recommended_tone` |
+| `research.recommended_value_prop` | `research_summaries.recommended_value_prop` |
+| `scout_copy.linkedin_dm` (first_dm only) | `research_summaries.personalized_linkedin_dm` |
+
+A lead is only eligible for `first_dm`/`reply` if a `research_summaries` row exists and `personalized_linkedin_dm IS NOT NULL` (for `first_dm`). Otherwise skip; the cron picks it up once scout backfills.
+
 ### `src/lib/agentapi/outreach-prompts.ts`
 
 ```ts
+export interface ResearchSummary {  // row shape from research_summaries
+  lead_id: string;
+  company_summary: string | null;
+  role_summary: string | null;
+  recent_news: string | null;
+  pain_points: string[] | null;
+  recommended_tone: "formal" | "conversational" | "technical" | null;
+  recommended_value_prop:
+    | "operational_efficiency"
+    | "post_ma_integration"
+    | "digital_transformation"
+    | "process_improvement"
+    | null;
+  personalized_linkedin_dm: string | null;
+}
+
 export function buildFirstDmLead(
   lead: Lead,
-  research: LeadAiResearch,
-  scoutCopy: { linkedin_dm: string }
+  research: ResearchSummary,
+  connectionAcceptedAt: string  // ISO8601 from lead_events
 ): FirstDmLead;
 
 export function buildReplyLead(
   lead: Lead,
-  research: LeadAiResearch,
+  research: ResearchSummary,
   chatroom: HeyReachChatroom,
   ourAccountId: number
 ): ReplyLead;
@@ -172,6 +228,8 @@ export function normalizeChatroom(
 ```
 
 `normalizeChatroom` filters `chatroom.messages`, maps each to `{ from: "us" | "them", text, at }` based on whether the message's sender matches `ourAccountId`. Sorted chronologically.
+
+`buildFirstDmLead` pulls `scout_copy.linkedin_dm` from `research.personalized_linkedin_dm` (enforced non-null by the bucket query).
 
 ### `src/lib/agentapi/types.ts` (extensions)
 
@@ -197,7 +255,9 @@ All under `src/trigger/outreach-dispatch/`.
 ```ts
 export const outreachDispatch = schedules.task({
   id: "outreach-dispatch",
-  cron: "*/30 * * * *",
+  // Mon–Fri, 09:00–18:59, every 30 min. Cron expression is UTC by default
+  // in Trigger.dev; override via `timezone: "America/New_York"` if needed.
+  cron: { pattern: "*/30 9-18 * * 1-5", timezone: "America/New_York" },
   maxDuration: 1_800,
   run: async () => {
     // 1. list active companies with heyreach_linkedin_account_id IS NOT NULL
@@ -207,11 +267,11 @@ export const outreachDispatch = schedules.task({
 });
 ```
 
-Bucket queries (per company, ordered by oldest signal first, hard cap ~100 leads per bucket per run):
+Bucket queries (per company, ordered by oldest signal first, hard cap ~100 leads per bucket per run). All three buckets join `research_summaries` where relevant — skip any lead whose research row is missing.
 
-- **Cold** — `funnel_stage='qualified' AND heyreach_lead_id IS NULL AND persona_type IN (keys of heyreach_conn_req_campaigns) AND qualification_status='ready'`
-- **First-DM** — leads with a `connection_request_accepted` event AND no outbound `lead_messages` row AND `heyreach_conversation_id IS NOT NULL`. (If conversation_id is null the reply path can't call `sendMessage` anyway — Make.com upgrade must populate it on `connection_request_accepted` or we fall through to the cron after the first reply.)
-- **Reply** — `max(lead_events.created_at) WHERE event_type IN ('message_reply_received','message_replied','every_message_reply_received') > COALESCE(max(lead_messages.created_at) WHERE direction='outbound'), '-infinity')`
+- **Cold** — `funnel_stage='qualified' AND heyreach_lead_id IS NULL AND persona_type IN (keys of heyreach_conn_req_campaigns) AND qualification_status='ready'` (no research required — cold enrollment does not compose copy).
+- **First-DM** — leads with a `connection_request_accepted` event (inner join `lead_events`, surface `connection_request_accepted.created_at AS connection_accepted_at`) AND no outbound `lead_messages` row AND `heyreach_conversation_id IS NOT NULL` AND `research_summaries.personalized_linkedin_dm IS NOT NULL`. The `connection_accepted_at` value flows straight into `buildFirstDmLead`.
+- **Reply** — leads where `max(lead_events.created_at) WHERE event_type IN ('message_reply_received','message_replied','every_message_reply_received') > COALESCE(max(lead_messages.created_at) WHERE direction='outbound', '-infinity')` AND `heyreach_conversation_id IS NOT NULL` AND a `research_summaries` row exists (no `personalized_linkedin_dm` requirement — replies don't need a scout draft).
 
 ### `enroll-cold.ts`
 
@@ -234,7 +294,8 @@ export const composeAndSend = schemaTask({
     replyLeadIds: z.array(z.string().uuid()),
   }),
   run: async ({ companyId, firstDmLeadIds, replyLeadIds }) => {
-    // 1. Load Lead + LeadAiResearch for all IDs.
+    // 1. Load Lead + ResearchSummary (from research_summaries, NOT lead_ai_research) for all IDs.
+    //    For firstDmLeadIds also join lead_events to surface connection_accepted_at.
     // 2. For each replyLead: HeyReach getChatroom(accountId, conversationId) → normalizeChatroom.
     // 3. Build OutreachBatch. Chunk at 10 leads per POST.
     // 4. For each chunk: await outreachClient.compose(chunk).
@@ -296,13 +357,13 @@ Not needed:
 
 ## 10. Rollout
 
-1. **Migration** — apply the DDL in §4 via `mcp__supabase__apply_migration`. Update `src/lib/supabase/types.ts` to include new columns on `Lead` / `Company` and a new `LeadMessage` interface.
-2. **Make.com upgrade** — scenario writes rich `lead_events.detail` and populates `leads.heyreach_lead_id` + `heyreach_conversation_id`. Verify by inspecting a few new event rows.
-3. **Per-company config** — set `companies.heyreach_linkedin_account_id` and `companies.heyreach_conn_req_campaigns` for the pilot company (LIFT).
-4. **AgentAPI client** — `outreach-client.ts`, `outreach-prompts.ts`, types. Unit-test `normalizeChatroom` against a captured HeyReach chatroom payload.
-5. **Trigger tasks** — `outreach-dispatch` (cron), `enroll-cold`, `compose-and-send`. Deploy with cron **paused**.
-6. **Smoke test** — manually trigger `compose-and-send` with one `first_dm` lead and one `reply` lead (hand-picked; agent already running on :3288). Confirm: HeyReach DM arrives, `lead_messages` row written, `lead_events` row written, `funnel_stage` advanced.
-7. **Enable cron** — flip the schedule on. Watch the first tick, then let it run.
+1. **Migration** — [x] DDL from §4 applied via `mcp__supabase__apply_migration` as `add_outreach_tables`. `src/lib/supabase/types.ts` extended with new `Lead` / `Company` columns, `LeadMessage`, and `ResearchSummary` interfaces; helpers in `src/lib/supabase/messages.ts`.
+2. **Make.com upgrade** — [ ] Scenario must write rich `lead_events.detail` and populate `leads.heyreach_lead_id` + `heyreach_conversation_id` (and `replied_at` on replies). Verify by inspecting a few new event rows before enabling the cron — until Make.com runs, every lead will be silently filtered out of the first_dm / reply buckets.
+3. **Per-company config** — [ ] Set `companies.heyreach_linkedin_account_id` and `companies.heyreach_conn_req_campaigns` for the pilot company (LIFT). Template SQL at `docs/outreach-pilot-config.sql` — fill in the account ID + persona→campaign map, then run. Without `heyreach_linkedin_account_id` a company is skipped entirely by `outreach-dispatch`.
+4. **AgentAPI client** — [x] `outreach-client.ts`, `outreach-prompts.ts`, union types added. Zod-validates receipts (discriminated union on `status`). `normalizeChatroom` has unit coverage at `src/lib/agentapi/outreach-prompts.test.ts` (`npm test`) over a synthetic chatroom fixture — swap for a captured HeyReach payload once observed (see TODO in the test).
+5. **Trigger tasks** — [x] `outreach-dispatch` (schedule), `enroll-cold`, `compose-and-send`, `buckets.ts` all in `src/trigger/outreach-dispatch/`. Cron defined on the task but **not yet attached in the Trigger.dev dashboard** — deployment is effectively paused until someone flips it on (step 7).
+6. **Smoke test** — [ ] Manually trigger `compose-and-send` with one `first_dm` lead and one `reply` lead (hand-picked; agent already running on :3288). Confirm: HeyReach DM arrives, `lead_messages` row written, `lead_events` row written, `funnel_stage` advanced.
+7. **Enable cron** — [ ] Attach the schedule in the Trigger.dev dashboard. Watch the first tick, then let it run.
 
 ---
 
@@ -323,3 +384,5 @@ Not needed:
 - **Persona → campaign mapping maintenance.** Manual for V1 (direct SQL on `companies.heyreach_conn_req_campaigns`). If personas churn often, move to a proper join table.
 - **Scout copy for replies.** Scout only produces cold openers. Replies have no `scout_copy`. Confirmed with agent PLAN §4 note: "`scout_copy.linkedin_dm` is present for `first_dm`, absent for `reply`."
 - **Funnel stage on reply.** Currently the cron does not advance stage on reply send (no clean target — the lead is already past `contacted`). Revisit if downstream cares.
+- **Working hours timezone**. Doc pins cron to `America/New_York` in §6. Change if the team operates on a different schedule.
+- **Gateway path confirmation.** §5 assumes `${AGENTAPI_BASE_URL}/outreach-orchestrator/message` (agent-id prefix, matching scout's `${BASE_URL}/scout/ask`). Verify against the AgentAPI gateway's actual routing config before flipping cron on in §10 step 7.

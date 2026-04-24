@@ -51,11 +51,14 @@ export interface Lead {
   phone_type: string | null;
   phone_status: string | null;
   phone_revealed_at: string | null;
+  heyreach_lead_id: string | null;
+  heyreach_conversation_id: string | null;
   synced_at: string | null;
   qualified_at: string | null;
   suppressed_at: string | null;
   enrolled_at: string | null;
   discovered_at: string | null;
+  replied_at: string | null;
   tag: string | null;
   created_at: string;
   updated_at: string;
@@ -80,9 +83,59 @@ export interface Company {
   hubspot_access_token: string | null;
   hubspot_portal_id: string | null;
   apollo_contact_stage_id: string | null;
+  heyreach_conn_req_campaigns: Record<string, number> | null;
+  heyreach_linkedin_account_id: number | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export type LeadMessageChannel = "linkedin" | "email" | "phone";
+export type LeadMessageDirection = "outbound" | "inbound";
+export type LeadMessageInputType = "first_dm" | "reply";
+export type LeadMessageCopySource = "scout_passthrough" | "override";
+
+export interface LeadMessage {
+  id: string;
+  lead_id: string;
+  channel: LeadMessageChannel;
+  direction: LeadMessageDirection;
+  content: string;
+  source_system: string;
+  external_message_id: string | null;
+  batch_id: string | null;
+  input_type: LeadMessageInputType | null;
+  copy_source: LeadMessageCopySource | null;
+  intent: string | null;
+  created_at: string;
+}
+
+export type NewLeadMessage = Omit<LeadMessage, "id" | "created_at">;
+
+export type RecommendedTone = "formal" | "conversational" | "technical";
+export type RecommendedValueProp =
+  | "operational_efficiency"
+  | "post_ma_integration"
+  | "digital_transformation"
+  | "process_improvement";
+
+export interface ResearchSummary {
+  id: string;
+  lead_id: string;
+  company_summary: string | null;
+  role_summary: string | null;
+  recent_news: string | null;
+  pain_points: string[] | null;
+  competitive_landscape: string | null;
+  recommended_value_prop: RecommendedValueProp | null;
+  recommended_tone: RecommendedTone | null;
+  channel_strategy: string | null;
+  personalized_email_subject: string | null;
+  personalized_email_draft: string | null;
+  personalized_linkedin_note: string | null;
+  personalized_linkedin_dm: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export interface LeadAiResearch {

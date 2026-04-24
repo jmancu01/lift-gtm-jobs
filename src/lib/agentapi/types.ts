@@ -66,3 +66,106 @@ export class AgentApiSchemaError extends Error {
     this.name = "AgentApiSchemaError";
   }
 }
+
+// --- outreach-orchestrator (outreach.v1) ---
+// Contracts mirror agentapi/agents/outreach-orchestrator/PLAN.md §4-§5.
+
+export type OutreachTone = "formal" | "conversational" | "technical";
+export type OutreachValueProp =
+  | "operational_efficiency"
+  | "post_ma_integration"
+  | "digital_transformation"
+  | "process_improvement";
+
+export interface OutreachResearch {
+  company_summary: string | null;
+  role_summary: string | null;
+  recent_news: string | null;
+  pain_points: string[];
+  recommended_tone: OutreachTone | null;
+  recommended_value_prop: OutreachValueProp | null;
+}
+
+export interface FirstDmLead {
+  input_type: "first_dm";
+  lead_id: string;
+  name: string;
+  title: string | null;
+  company: string | null;
+  linkedin_url: string | null;
+  persona_type: string | null;
+  icp_tier: FitTier | null;
+  connection_accepted_at: string;
+  research: OutreachResearch;
+  scout_copy: { linkedin_dm: string };
+}
+
+export interface ConversationMessage {
+  from: "us" | "them";
+  text: string;
+  at: string;
+}
+
+export interface ReplyLead {
+  input_type: "reply";
+  lead_id: string;
+  name: string;
+  title: string | null;
+  company: string | null;
+  linkedin_url: string | null;
+  persona_type: string | null;
+  icp_tier: FitTier | null;
+  research: OutreachResearch;
+  conversation: ConversationMessage[];
+}
+
+export type OutreachLead = FirstDmLead | ReplyLead;
+
+export interface OutreachBatch {
+  batch_id: string;
+  as_of: string;
+  leads: OutreachLead[];
+}
+
+export type ReplyIntent =
+  | "engaged_positive"
+  | "asking_for_info"
+  | "objection_or_cold"
+  | "out_of_scope"
+  | "negative_or_unsubscribe";
+
+export interface FirstDmResult {
+  lead_id: string;
+  input_type: "first_dm";
+  status: "ready_to_send";
+  copy_source: "scout_passthrough" | "override";
+  message: string;
+  reasoning: string;
+}
+
+export interface ReplyReadyResult {
+  lead_id: string;
+  input_type: "reply";
+  status: "ready_to_send";
+  intent: ReplyIntent;
+  conversation_summary: string;
+  message: string;
+  reasoning: string;
+}
+
+export interface ReplyHeldResult {
+  lead_id: string;
+  input_type: "reply";
+  status: "held_for_human";
+  intent: ReplyIntent;
+  conversation_summary: string;
+  hold_reason: string;
+  suggested_draft: string;
+}
+
+export type OutreachResult = FirstDmResult | ReplyReadyResult | ReplyHeldResult;
+
+export interface OutreachReceipt {
+  batch_id: string;
+  results: OutreachResult[];
+}
