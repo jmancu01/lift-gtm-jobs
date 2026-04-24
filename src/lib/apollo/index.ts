@@ -10,4 +10,7 @@ export type {
   ApolloBulkEnrichResponse,
   ApolloCreateContactInput,
   ApolloContactResponse,
+  ApolloContact,
+  ApolloContactsSearchResponse,
+  ApolloPhoneNumber,
 } from "./types.js";

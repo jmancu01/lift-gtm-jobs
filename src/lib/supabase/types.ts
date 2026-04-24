@@ -46,6 +46,11 @@ export interface Lead {
   apollo_action: string | null;
   email_status: string | null;
   soft_bounce_count: number;
+  phone: string | null;
+  phone_source: string | null;
+  phone_type: string | null;
+  phone_status: string | null;
+  phone_revealed_at: string | null;
   synced_at: string | null;
   qualified_at: string | null;
   suppressed_at: string | null;

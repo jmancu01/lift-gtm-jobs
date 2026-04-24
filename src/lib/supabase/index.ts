@@ -9,6 +9,7 @@ export {
   getLeadsByStage,
   updateLead,
   findExistingApolloIds,
+  getRecentLeadsMissingPhone,
   leadExistsByEmail,
   insertLead,
   type GetLeadsOptions,

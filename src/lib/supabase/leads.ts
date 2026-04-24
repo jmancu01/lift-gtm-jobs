@@ -32,6 +32,25 @@ export async function updateLead(id: string, data: Partial<Lead>): Promise<void>
   if (error) throw new Error(`Failed to update lead: ${error.message}`);
 }
 
+export async function getRecentLeadsMissingPhone(
+  companyId: string,
+  limit: number,
+): Promise<Lead[]> {
+  const client = createSupabaseClient();
+  const { data, error } = await client
+    .from("leads")
+    .select("*")
+    .eq("company_id", companyId)
+    .not("apollo_id", "is", null)
+    .is("phone", null)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    throw new Error(`Failed to fetch leads missing phone: ${error.message}`);
+  }
+  return (data ?? []) as Lead[];
+}
+
 export async function findExistingApolloIds(
   companyId: string,
   apolloIds: string[],

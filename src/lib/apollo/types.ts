@@ -28,6 +28,17 @@ export interface ApolloSearchResponse {
   people: ApolloSearchPerson[];
 }
 
+export interface ApolloPhoneNumber {
+  raw_number?: string | null;
+  sanitized_number?: string | null;
+  type?: string | null;
+  position?: number | null;
+  status?: string | null;
+  dnc_status?: string | null;
+  dnc_other_info?: string | null;
+  source?: string | null;
+}
+
 export interface ApolloEnrichedPerson {
   id: string;
   first_name: string;
@@ -39,6 +50,9 @@ export interface ApolloEnrichedPerson {
   extrapolated_email_confidence: number | null;
   linkedin_url: string;
   last_refreshed_at: string | null;
+  phone_numbers?: ApolloPhoneNumber[];
+  sanitized_phone?: string | null;
+  mobile_phone?: string | null;
   organization?: {
     id: string;
     name: string;
@@ -77,4 +91,24 @@ export interface ApolloCreateContactInput {
 
 export interface ApolloContactResponse {
   contact: { id: string; [key: string]: unknown };
+}
+
+export interface ApolloContact {
+  id: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  title?: string | null;
+  person_id?: string | null;
+  phone_numbers?: ApolloPhoneNumber[];
+  sanitized_phone?: string | null;
+}
+
+export interface ApolloContactsSearchResponse {
+  contacts: ApolloContact[];
+  pagination?: {
+    total_entries?: number;
+    per_page?: number;
+    page?: number;
+  };
 }

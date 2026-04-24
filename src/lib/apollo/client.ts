@@ -3,6 +3,7 @@ import type {
   ApolloBulkEnrichRequest,
   ApolloBulkEnrichResponse,
   ApolloContactResponse,
+  ApolloContactsSearchResponse,
   ApolloCreateContactInput,
   ApolloSearchFilters,
   ApolloSearchResponse,
@@ -93,6 +94,20 @@ class ApolloClient {
     return this.request<ApolloBulkEnrichResponse>(
       "POST",
       "/api/v1/people/bulk_match",
+      body,
+    );
+  }
+
+  async searchContacts(
+    params: { qKeywords?: string; perPage?: number; page?: number },
+  ): Promise<ApolloContactsSearchResponse> {
+    const body: Record<string, unknown> = {};
+    if (params.qKeywords) body.q_keywords = params.qKeywords;
+    if (params.perPage) body.per_page = params.perPage;
+    if (params.page) body.page = params.page;
+    return this.request<ApolloContactsSearchResponse>(
+      "POST",
+      "/api/v1/contacts/search",
       body,
     );
   }
