@@ -65,13 +65,18 @@ export interface Lead {
 }
 
 export interface LeadEvent {
+  id?: string;
   lead_id: string;
   event_type: string;
   source_system: string;
-  workflow: string;
-  sequence_step: number;
+  workflow?: string | null;
+  sequence_step?: number | null;
+  channel?: string | null;
   campaign_name?: string | null;
+  email?: string | null;
+  notes?: string | null;
   detail?: Record<string, unknown> | null;
+  payload?: Record<string, unknown> | null;
   created_at?: string;
 }
 

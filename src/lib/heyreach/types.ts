@@ -119,6 +119,26 @@ export interface HeyReachLead {
   tags?: string[];
   emailAddress?: string;
   customFields?: HeyReachCustomUserField[];
+  linkedin_id?: string;
+  enrichedEmailAddress?: string | null;
+  customEmailAddress?: string | null;
+}
+
+export interface HeyReachCampaignLead {
+  id: number;
+  linkedInUserProfileId: string | null;
+  linkedInUserProfile: HeyReachLead;
+  lastActionTime?: string | null;
+  failedTime?: string | null;
+  creationTime?: string | null;
+  finishedTime?: string | null;
+  leadCampaignStatus?: string;
+  leadConnectionStatus?: string;
+  leadMessageStatus?: string;
+  errorCode?: string | number | null;
+  leadCampaignStatusMessage?: string | null;
+  linkedInSenderId?: number;
+  linkedInSenderFullName?: string;
 }
 
 export interface HeyReachAccountLeadPair {

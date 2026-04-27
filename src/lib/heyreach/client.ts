@@ -4,6 +4,7 @@ import type {
   HeyReachAddLeadsToCampaignParams,
   HeyReachAddLeadsToListParams,
   HeyReachCampaign,
+  HeyReachCampaignLead,
   HeyReachChatroom,
   HeyReachCompany,
   HeyReachCreateEmptyListParams,
@@ -162,7 +163,7 @@ class HeyReachClient {
 
   async getLeadsFromCampaign(
     params: HeyReachGetLeadsFromCampaignParams,
-  ): Promise<HeyReachPaginatedResponse<HeyReachLead>> {
+  ): Promise<HeyReachPaginatedResponse<HeyReachCampaignLead>> {
     return this.request(
       "POST",
       "/api/public/campaign/GetLeadsFromCampaign",

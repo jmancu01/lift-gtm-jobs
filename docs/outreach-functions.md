@@ -2,14 +2,15 @@
 
 > Companion to `agentapi/agents/outreach-orchestrator/PLAN.md`. This doc covers the `gtm-jobs` side: the Trigger.dev task that calls the outreach-orchestrator agent, the AgentAPI client, the HeyReach I/O on either side, and the schema changes this flow needs.
 
-## Status (2026-04-24)
+## Status (2026-04-27)
 
 | § | Item | Status |
 |---|------|--------|
 | 4 | Migration (`20260424140000_add_outreach_tables.sql`) | **Done** — applied to project `ycwarkyijoeunmgjbikm` |
+| 4b | `lead_events.payload JSONB` added out-of-band (not in the outreach migration) | **Done** — column exists; 2/3,843 heyreach rows populated so far (1× `connection_request_accepted`, 1× `every_message_reply_received`) |
 | 5 | AgentAPI outreach client (`outreach-client.ts`, `outreach-prompts.ts`, union types) | **Done** |
-| 6 | Trigger tasks (`outreach-dispatch/index.ts`, `enroll-cold.ts`, `compose-and-send.ts`, `buckets.ts`) | **Done** — registered, cron not yet attached in Trigger.dev dashboard |
-| 10.2 | Make.com upgrade (rich `lead_events`, `heyreach_lead_id`/`heyreach_conversation_id`, `replied_at`) | **Not done** — external to this repo |
+| 6 | Trigger tasks (`outreach-dispatch/index.ts`, `enroll-cold.ts`, `compose-and-send.ts`, `buckets.ts`) | **Done (uncommitted)** — registered; `enroll-cold` `heyreach_lead_id` backfill via `getLeadsFromCampaign` implemented + `HeyReachCampaignLead` type added. Cron defined on the task but not yet attached in the Trigger.dev dashboard (step 7). |
+| 10.2 | Make.com upgrade (write full webhook body to `lead_events.payload`; populate `leads.heyreach_lead_id` / `heyreach_conversation_id` / `replied_at`) | **In progress** — `connection_request_accepted` and `every_message_reply_received` payloads both captured; conversation-id path resolved (`payload.conversation_id` top-level). Make scenario still needs to update the `leads` table on every event going forward. |
 | 10.3 | Per-company config (`heyreach_linkedin_account_id`, `heyreach_conn_req_campaigns`) | **Not done** — template at `docs/outreach-pilot-config.sql` |
 | 10.4 | `normalizeChatroom` unit test | **Done** — synthetic fixture at `src/lib/agentapi/outreach-prompts.test.ts`; TODO to swap for a captured payload |
 | 10.6 | Smoke test (hand-pick one first_dm + one reply lead) | **Not done** |
@@ -19,7 +20,8 @@ Deviations from the spec below captured during implementation:
 - §5 timeout is `180_000ms` (not `120_000ms`) — 4× the 45s per-batch budget gives slow chunks room to fail before the Trigger.dev task ceiling.
 - HeyReach client method is `addLeadsToCampaign` (already hits the `/AddLeadsToCampaignV2` endpoint internally); plan text said `addLeadsToCampaignV2`.
 - Cold bucket additionally skips leads without `linkedin_url` (HeyReach requires `profileUrl`).
-- `normalizeChatroom` matches `sender` against `ourAccountId` across number / string / `{id|accountId|linkedInAccountId}` shapes (§12 open question remains; swap-in once we have a captured payload).
+- `normalizeChatroom` matches `sender` against `ourAccountId` across number / string / `{id|accountId|linkedInAccountId}` shapes — `payload.sender.id` (number) is now confirmed against the captured `connection_request_accepted` and `every_message_reply_received` rows.
+- §6 typing fix landed as a new `HeyReachCampaignLead` type wrapping the existing `HeyReachLead` (with `id: number`, `linkedInUserProfile`, `creationTime`, etc.) rather than mutating `HeyReachLead`. `getLeadsFromCampaign` now returns `HeyReachPaginatedResponse<HeyReachCampaignLead>` and the enroll-cold backfill matches on `linkedInUserProfile.profileUrl`.
 
 
 - Agent contract: `agentapi/agents/outreach-orchestrator/PLAN.md` (§4 input, §5 output). Agent has no tools, no DB access, no HeyReach access — it is a pure function `batch → receipt`.
@@ -58,9 +60,9 @@ Deviations from the spec below captured during implementation:
 ### Make.com owns
 
 - Receiving HeyReach webhooks.
-- Writing rich `lead_events` rows (full HeyReach payload in `detail`).
-- Setting `leads.heyreach_lead_id` and `leads.heyreach_conversation_id` when first observable in the payload.
-- Updating `leads.replied_at` on reply events.
+- Writing `lead_events` rows with the **full HeyReach webhook body stored in `lead_events.payload` (JSONB)**. `detail` is free to use for auxiliary trace info (e.g. Make scenario run URL) — do NOT stuff the payload into `detail`.
+- Setting `leads.heyreach_lead_id` (from `payload.lead.id`) and `leads.heyreach_conversation_id` (from reply/message payloads) when first observable.
+- Updating `leads.replied_at` on reply events (from `payload.timestamp`).
 
 ---
 
@@ -71,7 +73,7 @@ HeyReach webhooks
     │
     ▼
 Make.com scenario  ──► Supabase
-    • insert lead_events (detail = full payload)
+    • insert lead_events (payload = full HeyReach webhook body, JSONB)
     • update leads.heyreach_lead_id / heyreach_conversation_id / replied_at
 
           
@@ -141,10 +143,39 @@ CREATE INDEX lead_messages_lead_idx ON lead_messages (lead_id, created_at DESC);
 ```
 
 Column meanings:
-- `companies.heyreach_conn_req_campaigns`: `{"<persona_name>": "<heyreach_campaign_id>"}`. Used only by cold enrollment.
-- `companies.heyreach_linkedin_account_id`: our sender account ID for that company. Required by `sendMessage` and `getChatroom`.
-- `leads.heyreach_lead_id`: populated by Make.com on `connection_request_accepted`.
-- `leads.heyreach_conversation_id`: populated by Make.com on first reply/send event for the lead.
+- `companies.heyreach_conn_req_campaigns`: `{"<persona_name>": "<heyreach_campaign_id>"}`. Used only by cold enrollment. **These campaigns must be connection-only — no message sequence attached.** First DMs are composed by the outreach-orchestrator and sent via `sendMessage` after `connection_request_accepted` fires; any campaign that also queues a sequence step will race our flow and step on our first DM. Reconfigure before wiring a campaign ID in here.
+- `companies.heyreach_linkedin_account_id`: our sender account ID for that company. Required by `sendMessage` and `getChatroom`. Matches `payload.sender.id` on every HeyReach webhook event we send.
+- `leads.heyreach_lead_id`: populated by Make.com on `connection_request_accepted` from `payload.lead.id` (HeyReach stringifies it, e.g. `"835630791"`).
+- `leads.heyreach_conversation_id`: populated by Make.com on the first reply/send event for the lead (not present on `connection_request_accepted`).
+
+### 4a. `lead_events.payload` (added out-of-band)
+
+`lead_events.payload JSONB NULL` was added by the user directly (not via the outreach migration) so Make.com can store the full HeyReach webhook body per event. The column is **JSONB**, so Make should insert it as an object, not a stringified JSON. A reference row is `85e1a691-f80d-485d-8feb-cfd000db3259` (a `connection_request_accepted` for Frank Anello at Citi). The observed top-level shape for that event type:
+
+```json
+{
+  "connection_message": "",
+  "campaign":   { "id": 329500, "name": "camp_linkedin_transformation", "status": 1 },
+  "sender":     { "id": 153472, "first_name": "...", "last_name": "...", "email_address": "...", "profile_url": "..." },
+  "lead": {
+    "id":             "835630791",
+    "profile_url":    "https://www.linkedin.com/in/...",
+    "first_name":     "...", "last_name": "...", "full_name": "...",
+    "location":       "...",
+    "summary":        "...",
+    "company_name":   "Citi",
+    "position":       "SVP - Head of Transformation Risk Appetite & Limits",
+    "email_address":  "frank.a@citigroup.com",
+    "enriched_email": null, "custom_email": "...",
+    "tags": [], "lists": [{ "id": 520383, "name": "transformation_list", "custom_fields": {} }]
+  },
+  "timestamp":      "2026-04-24T11:39:21.9648884Z",
+  "event_type":     "connection_request_accepted",
+  "correlation_id": "374ffa11-682e-4666-b2f5-52d30218dc30"
+}
+```
+
+For `every_message_reply_received` (reference row `lead_events.id = 601ca7d0-4d43-4a4e-9bbb-20473934e2b2`, captured 2026-04-27) the chatroom id is at **`payload.conversation_id`** (top-level, base64 string starting `2-...`), and the recent reply text is in `payload.recent_messages[*]` (`{creation_time, message, is_reply}`). The other reply/message event types (`message_sent`, `message_reply_received`, `message_replied`) are presumed to share this shape but are still uncaptured — verify each as it lands before relying on the path.
 
 ---
 
@@ -276,8 +307,11 @@ Bucket queries (per company, ordered by oldest signal first, hard cap ~100 leads
 ### `enroll-cold.ts`
 
 - Input: `{ companyId, leadIds: string[] }`.
-- Looks up `companies.heyreach_conn_req_campaigns`. Groups leads by `persona_type`. For each persona, calls `heyReachClient.addLeadsToCampaignV2(campaignId, leads)`.
+- Looks up `companies.heyreach_conn_req_campaigns`. Groups leads by `persona_type`. For each persona, calls `heyReachClient.addLeadsToCampaign(campaignId, leads)` (method name per client.ts:143; hits `/AddLeadsToCampaignV2` internally).
 - On success: update `leads.funnel_stage='enrolled'`, `leads.enrolled_at=now()`, `leads.heyreach_campaign=<persona_name>`. Insert `lead_events` (`event_type='connection_request_enrolled'`, `source_system='gtm-jobs'`).
+- **Backfill `heyreach_lead_id` (primary path):** `addLeadsToCampaign` returns only counts (`addedLeadsCount`, etc.), so immediately after a successful enroll, the task calls `heyReachClient.getLeadsFromCampaign({ campaignId, limit: 100, timeFilter: "CreationTime", timeFrom: <run_start_iso> })` and updates `leads.heyreach_lead_id` where `heyreach_lead_id IS NULL` matching on `linkedInUserProfile.profileUrl`. The HeyReach campaign id is a numeric `id` (stringified before write to keep the column TEXT). This removes the dependency on Make.com catching `connection_request_accepted` to populate the ID. Make.com remains a redundant fallback (idempotent — "only overwrite when NULL" guardrail in §10.2 prevents double-writes).
+  - Type: response items are `HeyReachCampaignLead` (`{ id: number, linkedInUserProfile: HeyReachLead, creationTime, leadCampaignStatus, ... }`), distinct from `HeyReachLead` itself.
+  - `heyreach_conversation_id` **cannot** be captured at enroll time — the chatroom doesn't exist until connection acceptance or first message. That ID stays on the Make.com path (`payload.conversation_id` on reply/message events).
 - Failures → log + retry policy per Trigger defaults. No agent involvement.
 
 ### `compose-and-send.ts`
@@ -358,7 +392,39 @@ Not needed:
 ## 10. Rollout
 
 1. **Migration** — [x] DDL from §4 applied via `mcp__supabase__apply_migration` as `add_outreach_tables`. `src/lib/supabase/types.ts` extended with new `Lead` / `Company` columns, `LeadMessage`, and `ResearchSummary` interfaces; helpers in `src/lib/supabase/messages.ts`.
-2. **Make.com upgrade** — [ ] Scenario must write rich `lead_events.detail` and populate `leads.heyreach_lead_id` + `heyreach_conversation_id` (and `replied_at` on replies). Verify by inspecting a few new event rows before enabling the cron — until Make.com runs, every lead will be silently filtered out of the first_dm / reply buckets.
+2. **Make.com upgrade** — [~] Scenario must write the full HeyReach webhook body to **`lead_events.payload` (JSONB)** and populate `leads.heyreach_conversation_id` (primary path — the chatroom doesn't exist at enroll time, so only the webhook can source this) and `replied_at` on replies. `leads.heyreach_lead_id` is now populated primarily by `enroll-cold`'s backfill (§6); Make.com's write is a redundant fallback for leads enrolled outside our cron (manual enrollment, imports) — the "only overwrite when NULL" guardrail keeps both paths idempotent. `detail` is NOT for the payload — leave it free for trace info (e.g. Make run URL). Verify by inspecting a few new event rows per event-type before enabling the cron — until Make.com runs, replies will be silently filtered out of the reply bucket.
+
+   **Status check (2026-04-27):** 2 events have `payload` populated — `85e1a691-f80d-485d-8feb-cfd000db3259` (`connection_request_accepted`, captured 2026-04-24) and `601ca7d0-4d43-4a4e-9bbb-20473934e2b2` (`every_message_reply_received`, captured 2026-04-27 via manual SQL insert). The other 3,841 heyreach events predate this column and cannot be backfilled. The Kristin Hendrix lead (`f7ef879f-46e3-46ae-99ff-7bf34cc27c0d`) is the first row with `heyreach_lead_id` and `heyreach_conversation_id` populated — that backfill was done by the manual insert, not by Make. The Make scenario still needs to start writing the `leads` table on every event going forward.
+
+   **Per-event-type field map (source of truth: `payload.*` fields).** Match the lead row by `payload.lead.profile_url = leads.linkedin_url` (fallback: `payload.lead.email_address = leads.email`).
+
+   | HeyReach `event_type` | `leads.heyreach_lead_id` | `leads.heyreach_conversation_id` | `leads.replied_at` |
+   |---|---|---|---|
+   | `connection_request_accepted` | set from `payload.lead.id` if NULL | — (not in payload) | — |
+   | `message_sent` | set from `payload.lead.id` if NULL | set from `payload.conversation_id` if NULL (presumed — unverified) | — |
+   | `message_reply_received` / `every_message_reply_received` / `message_replied` | set from `payload.lead.id` if NULL | set from `payload.conversation_id` if NULL (verified for `every_message_reply_received`) | set to `payload.timestamp` (overwrite with latest) |
+   | all others (`viewed_profile`, `connection_request_sent`, `email_opened`, `email_bounced`, `link_clicked`, `campaign_completed_for_lead_without_reply`) | best-effort set from `payload.lead.id` if NULL | — | — |
+
+   **Write pattern for every row** (independent of event type):
+   ```
+   INSERT INTO lead_events (lead_id, event_type, source_system, channel,
+                            campaign_name, workflow, email, payload, detail, created_at)
+   VALUES (<matched lead_id>,
+           <payload.event_type>,
+           'heyreach',
+           'linkedin',                                  -- or 'email' for email_* events
+           <payload.campaign.name>,
+           <Make scenario / workflow id, e.g. 'WF-6'>,
+           <payload.lead.email_address>,
+           <full payload, as JSONB object — NOT stringified>,
+           <Make scenario log URL as a JSONB string, optional>,
+           <payload.timestamp>);
+   ```
+
+   **Guardrails:**
+   - Only overwrite `leads.heyreach_lead_id` / `heyreach_conversation_id` when the target column is NULL — never replace with a different non-null id.
+   - Insert `payload` as a JSONB object, not a JSON-encoded string (the reference row stores it correctly; don't regress).
+   - Conversation-id field name is now resolved (`payload.conversation_id`, top-level) via the captured `every_message_reply_received` payload. Capture an additional `message_sent` or `message_reply_received` payload to confirm the same path holds for those event types before flipping the cron on.
 3. **Per-company config** — [ ] Set `companies.heyreach_linkedin_account_id` and `companies.heyreach_conn_req_campaigns` for the pilot company (LIFT). Template SQL at `docs/outreach-pilot-config.sql` — fill in the account ID + persona→campaign map, then run. Without `heyreach_linkedin_account_id` a company is skipped entirely by `outreach-dispatch`.
 4. **AgentAPI client** — [x] `outreach-client.ts`, `outreach-prompts.ts`, union types added. Zod-validates receipts (discriminated union on `status`). `normalizeChatroom` has unit coverage at `src/lib/agentapi/outreach-prompts.test.ts` (`npm test`) over a synthetic chatroom fixture — swap for a captured HeyReach payload once observed (see TODO in the test).
 5. **Trigger tasks** — [x] `outreach-dispatch` (schedule), `enroll-cold`, `compose-and-send`, `buckets.ts` all in `src/trigger/outreach-dispatch/`. Cron defined on the task but **not yet attached in the Trigger.dev dashboard** — deployment is effectively paused until someone flips it on (step 7).
@@ -380,7 +446,8 @@ Not needed:
 
 ## 12. Open questions
 
-- **Make.com payload shape.** We need to confirm HeyReach's webhook body includes a stable sender-identity marker so Make.com can deterministically set `heyreach_conversation_id` and (for Make.com and the agent both) decide `from: "us" | "them"`. If ambiguous, `normalizeChatroom` falls back to matching against `companies.heyreach_linkedin_account_id`.
+- **Make.com payload shape — sender identity.** ✅ **Resolved.** HeyReach webhook bodies include `payload.sender.id` (integer, e.g. `153472`). That's the stable marker — it matches `companies.heyreach_linkedin_account_id` 1:1 and is what both Make and `normalizeChatroom` key off to decide `from: "us" | "them"`. Reference row: `lead_events.id = 85e1a691-f80d-485d-8feb-cfd000db3259`.
+- **Make.com payload shape — conversation id.** ✅ **Resolved (2026-04-27).** Reply events expose the chatroom id at top-level `payload.conversation_id` (base64 string starting `2-...`). Reference row: `lead_events.id = 601ca7d0-4d43-4a4e-9bbb-20473934e2b2` (`every_message_reply_received`, conversation `2-YjBmMTRkNTUtOGQ4Yi00YThhLTgwZDMtNTU4ZmZjYTc0MTk0XzEwMA==`). Same path is presumed (but not yet captured) for `message_sent`, `message_reply_received`, and `message_replied`; verify each as it lands. `connection_request_accepted` continues to not carry a conversation id — that's expected (chatroom doesn't exist yet).
 - **Persona → campaign mapping maintenance.** Manual for V1 (direct SQL on `companies.heyreach_conn_req_campaigns`). If personas churn often, move to a proper join table.
 - **Scout copy for replies.** Scout only produces cold openers. Replies have no `scout_copy`. Confirmed with agent PLAN §4 note: "`scout_copy.linkedin_dm` is present for `first_dm`, absent for `reply`."
 - **Funnel stage on reply.** Currently the cron does not advance stage on reply send (no clean target — the lead is already past `contacted`). Revisit if downstream cares.

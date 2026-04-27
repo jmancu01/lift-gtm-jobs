@@ -5,6 +5,7 @@ export type {
   HeyReachAddLeadsToCampaignParams,
   HeyReachAddLeadsToListParams,
   HeyReachCampaign,
+  HeyReachCampaignLead,
   HeyReachCampaignProgressStats,
   HeyReachCampaignStatus,
   HeyReachChatMessage,

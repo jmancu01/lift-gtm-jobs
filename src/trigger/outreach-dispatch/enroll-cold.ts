@@ -24,6 +24,7 @@ export interface EnrollColdSummary {
   enrolled: number;
   failed: number;
   skipped_missing_campaign: number;
+  heyreach_ids_backfilled: number;
 }
 
 /**
@@ -36,11 +37,13 @@ export const enrollCold = schemaTask({
   schema: payloadSchema,
   maxDuration: 900,
   run: async ({ companyId, batchId, leadIds }): Promise<EnrollColdSummary> => {
+    const runStartedAt = new Date().toISOString();
     const summary: EnrollColdSummary = {
       attempted: leadIds.length,
       enrolled: 0,
       failed: 0,
       skipped_missing_campaign: 0,
+      heyreach_ids_backfilled: 0,
     };
 
     const company = await getCompanyById(companyId);
@@ -145,6 +148,52 @@ export const enrollCold = schemaTask({
             },
           });
           summary.enrolled++;
+        }
+
+        // Backfill heyreach_lead_id by re-fetching the campaign's pending
+        // leads created since this task started and matching on profileUrl.
+        // AddLeadsToCampaignV2 returns only counts, so this is the primary
+        // path to capture the id before Make.com sees connection_request_*
+        // events. Make.com remains a fallback for leads enrolled elsewhere.
+        const byProfileUrl = new Map<string, string>();
+        for (const lead of group.leads) {
+          if (lead.linkedin_url && lead.heyreach_lead_id == null) {
+            byProfileUrl.set(lead.linkedin_url, lead.id);
+          }
+        }
+        if (byProfileUrl.size > 0) {
+          const page = await heyreach.getLeadsFromCampaign({
+            campaignId: group.campaignId,
+            timeFilter: "CreationTime",
+            timeFrom: runStartedAt,
+            limit: 100,
+          });
+          if (page.totalCount > page.items.length) {
+            logger.warn("enroll-cold backfill truncated at page limit", {
+              companyId,
+              campaignId: group.campaignId,
+              totalCount: page.totalCount,
+              returned: page.items.length,
+            });
+          }
+          let backfilledHere = 0;
+          for (const campaignLead of page.items) {
+            const url = campaignLead.linkedInUserProfile?.profileUrl;
+            if (!url) continue;
+            const leadId = byProfileUrl.get(url);
+            if (!leadId) continue;
+            await updateLead(leadId, {
+              heyreach_lead_id: String(campaignLead.id),
+            });
+            backfilledHere++;
+          }
+          summary.heyreach_ids_backfilled += backfilledHere;
+          logger.info("enroll-cold heyreach_lead_id backfill", {
+            companyId,
+            campaignId: group.campaignId,
+            requested: byProfileUrl.size,
+            backfilled: backfilledHere,
+          });
         }
       } catch (err) {
         summary.failed += group.leads.length;
